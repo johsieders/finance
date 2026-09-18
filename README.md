@@ -9,26 +9,43 @@ Die Kategorien schlägt das Programm aus der eigenen Historie vor -- `money.csv`
 ist die Quelle der Wahrheit, die Regeln sind ein daraus abgeleiteter Cache.
 Korrigiert wird von Hand, und jede Korrektur verbessert die nächsten Vorschläge.
 
+## Einrichtung
+
+Alle Aufrufe unten benutzen den Interpreter des Projekt-venv und sind aus dem
+Repository-Wurzelverzeichnis gedacht. Das ist derselbe Interpreter, den
+PyCharm benutzt -- so sehen Editor und Terminal dieselben Pakete.
+
+```bash
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+Einzige externe Abhängigkeit ist pandas, und die braucht nur `finance.pivot`;
+die vier anderen Programme laufen mit der Standardbibliothek. Getestet mit
+3.11 und 3.13; `python3` ist nicht immer das, was man denkt, daher der
+ausgeschriebene Interpreter.
+
 ## Monatlicher Ablauf
 
 ```bash
 # 1. Umsatzliste bei der DKB herunterladen, nach umsatzlisten/ legen
 
 # 2. Regeln aus der Historie neu berechnen
-python3 -m finance.build_rules
+.venv/bin/python -m finance.build_rules
 
 # 3. Vorschlagsdatei erzeugen: suggestions/<auszug>.suggestion.csv
-python3 -m finance.categorize_import
+.venv/bin/python -m finance.categorize_import
 
 # 4. Kat/UKat/Bem korrigieren (am besten in PyCharm); Excel, Numbers o.ä können Probleme mit Sonderzeichen oder Delimitern verursachen.
 
 # 5. Die korrigierte Datei in money.csv eintragen
-python3 -m finance.import_dkb
+.venv/bin/python -m finance.import_dkb
 ```
 
 Ohne Argumente nimmt jedes Programm die jeweils neueste Datei im vorgesehenen
-Ordner; `--help` zeigt, wie man eine andere wählt. `python3 -m
-finance.import_dkb --dry-run` zeigt, was passieren würde, ohne zu schreiben.
+Ordner; `--help` zeigt, wie man eine andere wählt.
+`.venv/bin/python -m finance.import_dkb --dry-run` zeigt, was passieren
+würde, ohne zu schreiben.
 
 ## Datenablage
 
@@ -209,9 +226,9 @@ Ist-Buchungen. `Saldo[i] = Betrag[i] + Saldo[i+1]`.
 ## `pivot` -- hinsehen, was da eigentlich steht
 
 ```bash
-python3 -m finance.pivot                      # HTML schreiben und oeffnen
-python3 -m finance.pivot --from-year 2020     # nur die letzten Jahre
-python3 -m finance.pivot --no-cents --no-open
+.venv/bin/python -m finance.pivot                  # HTML schreiben und oeffnen
+.venv/bin/python -m finance.pivot --from-year 2020 # nur die letzten Jahre
+.venv/bin/python -m finance.pivot --no-cents --no-open
 ```
 
 Zeilen Kat/UKat, Spalten Jahr/Monat, Werte die Betragssummen -- beide Achsen
@@ -239,8 +256,8 @@ daraus ein eigenes Tripel. Beim ersten Lauf waren es drei: `Kat='MF '`,
 ## `evaluate` -- die Zahlen nachrechnen
 
 ```bash
-python3 -m finance.evaluate                    # Training bis 01.01.2026, Test 2026
-python3 -m finance.evaluate --split 01.01.2025 --test-months 12
+.venv/bin/python -m finance.evaluate                     # Training bis 01.01.2026, Test 2026
+.venv/bin/python -m finance.evaluate --split 01.01.2025 --test-months 12
 ```
 
 Zeitlicher Split, keine Kreuzvalidierung: Regeln aus allen Ist-Buchungen vor

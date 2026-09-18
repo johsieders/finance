@@ -1,0 +1,11 @@
+# Einzige externe Abhängigkeit: pandas, benutzt nur von finance.pivot.
+# Alles andere (import_dkb, build_rules, categorize_import, evaluate)
+# läuft mit der Standardbibliothek.
+#
+# Installation in das Projekt-venv:
+#   .venv/bin/python -m pip install -r requirements.txt
+#
+# Getestet mit 2.3.0 (Python 3.11) und 3.0.6 (Python 3.13); die
+# money.html beider Läufe sind byteweise gleich.
+
+pandas>=2.0
