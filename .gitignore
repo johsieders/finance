@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# PyCharm
+.idea/
+
+# macOS
+.DS_Store
+
+# lokale Claude-Code-Einstellungen
+.claude/settings.local.json
