@@ -91,10 +91,11 @@ CREDIBLE_LEVEL = 0.05  # 5 %-Quantil = "mit 95 % Sicherheit mindestens p"
 P_HIGH = 0.85
 P_MEDIUM = 0.60
 
-# Darunter wird das Feld NICHT vorgeschlagen, sondern leer gelassen. Ein
-# angenommener Fehlvorschlag landet in money.csv und damit in den nächsten
-# Regeln -- ein leeres Feld kostet nur Tipparbeit.
-P_MIN_SUGGEST = 0.35
+# Darunter heißt das Label "unklar". Vorgeschlagen wird trotzdem: ein
+# Vorschlag, der in 56 % der Fälle stimmt, ist immer noch mehr wert als ein
+# leeres Feld, solange danebensteht, dass man ihm nicht glauben soll. Das
+# Urteil darüber fällt beim Korrigieren, nicht hier.
+P_UNCLEAR = 0.35
 
 # Eine Zweck-Signatur, die nur einmal vorkommt, hat sich noch nicht als
 # wiederkehrend erwiesen; sie bläht rules.json auf (1850 statt 248 Einträge),
@@ -252,9 +253,9 @@ def confidence_label(p: float) -> str:
         return "hoch"
     if p >= P_MEDIUM:
         return "mittel"
-    if p >= P_MIN_SUGGEST:
+    if p >= P_UNCLEAR:
         return "niedrig"
-    return "-"
+    return "unklar"
 
 
 def _mode(counts: Counter) -> tuple[str, int]:
@@ -413,7 +414,8 @@ def main() -> None:
     for name in rules["tier_order"]:
         entries = rules["tiers"][name]
         labels = Counter(confidence_label(v["kat"]["p"]) for v in entries.values())
-        detail = ", ".join(f"{labels[k]} {k}" for k in ("hoch", "mittel", "niedrig", "-")
+        detail = ", ".join(f"{labels[k]} {k}"
+                           for k in ("hoch", "mittel", "niedrig", "unklar")
                            if labels[k])
         print(f"  {name:20} {len(entries):5} Regeln (Kat: {detail})")
     print(f"Geschrieben nach {out_path}")

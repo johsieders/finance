@@ -17,11 +17,11 @@ Drei Tabellen, in dieser Reihenfolge zu lesen:
      als untere Schranke gebaut, also SOLL die gemessene Genauigkeit je
      Klasse über dem mittleren p liegen. Läge sie darunter, wäre p kaputt.
 
-  3. SCHWELLE -- was P_MIN_SUGGEST kostet und bringt. Jede Zeile ist eine
-     Kandidatenschwelle: wie viele Kat-Felder bleiben leer, und wie hoch ist
-     die Genauigkeit der Vorschläge, die übrig bleiben. Die Zeile mit der
-     besten Mischung gewinnt -- das ist eine Abwägung, keine Rechnung, und
-     deshalb steht sie hier als Tabelle und nicht als Automatik.
+  3. LABELGRENZEN -- wo ein Schnitt durch p wirklich trennt. Je Kandidat
+     die Genauigkeit unter und über ihm; gesucht ist ein grosser Abstand
+     zwischen beiden. Unterdrückt wird nichts: auch ein Vorschlag mit
+     kleinem p wird gemacht, er heisst dann "unklar". Das Urteil fällt beim
+     Korrigieren, nicht hier.
 
 Dazu ein Vergleich der Stufenauswahl (erste Stufe, die trifft, gegen die mit
 dem höchsten p), weil das die zweite Änderung der Kalibrierung war.
@@ -140,15 +140,16 @@ STRATEGIES = (
 
 
 def decide(rec: dict, p_min: float, select=sel_first_over) -> tuple:
-    """(Werte, Herkunft, p der Kat). Werte sind das, was tatsächlich in der
-    Vorschlagsdatei stünde: leere Felder, wo p die Schwelle verfehlt."""
+    """(Werte, Herkunft, p der Kat) -- genau das, was in der Vorschlagsdatei
+    stünde. Unterdrückt wird nichts mehr: p bestimmt nur noch das Label. Die
+    Schwelle steckt trotzdem noch in der Stufenauswahl."""
     chosen = select(rec["matches"], p_min)
     if chosen is None:
-        return (rec["fuzzy"] or ("", "", ""), "fuzzy" if rec["fuzzy"] else "none", None)
+        return (rec["fuzzy"] or ("", "", ""),
+                "unscharf" if rec["fuzzy"] else "none", None)
     _index, tier_name, rule = chosen
-    fields = [rule[n] for n in ("kat", "ukat", "bem")]
-    values = tuple(f["value"] if f["p"] >= p_min else "" for f in fields)
-    return values, (tier_name if values[0] else "unterdrueckt"), fields[0]["p"]
+    return (tuple(rule[n]["value"] for n in ("kat", "ukat", "bem")),
+            tier_name, rule["kat"]["p"])
 
 
 # ---------------------------------------------------------------------------
@@ -162,17 +163,13 @@ def _pct(n: int, total: int) -> str:
 def report_accuracy(records: list[dict], p_min: float) -> None:
     n = len(records)
     decided = [decide(r, p_min) for r in records]
-    print(f"\n1. TREFFERQUOTE (Schwelle p >= {p_min:.2f}, {n} Testbuchungen)")
-    print(f"   {'Feld':18} {'Abdeckung':>12} {'Genauigkeit':>13} {'gesamt richtig':>15}")
+    with_sugg = [(v, rec) for (v, _s, _p), rec in zip(decided, records) if v[0]]
+    print(f"\n1. TREFFERQUOTE ({n} Testbuchungen, davon {len(with_sugg)} mit "
+          f"Vorschlag = {_pct(len(with_sugg), n).strip()})")
+    print(f"   {'Feld':18} {'Genauigkeit':>13} {'gesamt richtig':>15}")
     for depth, label in enumerate(("Kat", "Kat+UKat", "Kat+UKat+Bem")):
-        filled = right = 0
-        for (values, _src, _p), rec in zip(decided, records):
-            if not values[0] or (depth > 0 and not values[depth]):
-                continue
-            filled += 1
-            right += values[:depth + 1] == rec["truth"][:depth + 1]
-        print(f"   {label:18} {_pct(filled, n):>12} {_pct(right, filled):>13} "
-              f"{_pct(right, n):>15}")
+        right = sum(v[:depth + 1] == rec["truth"][:depth + 1] for v, rec in with_sugg)
+        print(f"   {label:18} {_pct(right, len(with_sugg)):>13} {_pct(right, n):>15}")
     srcs = Counter(src for _v, src, _p in decided)
     print("   Herkunft: " + ", ".join(f"{k} {v}" for k, v in srcs.most_common()))
 
@@ -181,33 +178,21 @@ def report_labels(records: list[dict], p_min: float) -> None:
     """Was die Worte in der Konfidenz-Spalte tatsächlich wert sind. Das ist
     die Tabelle, die beim Korrigieren zählt: sie sagt, welche Zeilen man
     durchwinken kann und welche man lesen muss."""
-    print(f"\n2. WAS DIE LABELS WERT SIND (Kat, Schwelle {p_min:.2f})")
+    print(f"\n2. WAS DIE LABELS WERT SIND (Kat)")
     print(f"   {'Konfidenz':12} {'n':>6} {'Kat richtig':>13}")
     buckets: dict[str, list[bool]] = {}
     for rec in records:
         values, src, p = decide(rec, p_min)
         if src == "none":
             continue
-        if src == "fuzzy":
-            label, proposed = "unscharf", values[0]
-        elif src == "unterdrueckt":
-            # Gemessen wird der Vorschlag, der NICHT gemacht wurde -- sonst
-            # steht hier trivial 0 %, und die Schwelle bleibt unbegründet.
-            label = "leer (p<%.2f)" % p_min
-            proposed = sel_first_over(rec["matches"], p_min)[2]["kat"]["value"]
-        else:
-            label, proposed = build_rules.confidence_label(p), values[0]
-        buckets.setdefault(label, []).append(proposed == rec["truth"][0])
-    order = ["hoch", "mittel", "niedrig", "unscharf", "leer (p<%.2f)" % p_min]
-    for label in order:
+        label = "unscharf" if src == "unscharf" else build_rules.confidence_label(p)
+        buckets.setdefault(label, []).append(values[0] == rec["truth"][0])
+    for label in ("hoch", "mittel", "niedrig", "unklar", "unscharf"):
         hits = buckets.get(label)
         if not hits:
             continue
-        note = ""
-        if label.startswith("leer"):
-            # Diese Zeilen bleiben leer. Die Quote ist die des Vorschlags,
-            # der NICHT gemacht wurde -- also die Rechtfertigung der Schwelle.
-            note = "  <- nicht vorgeschlagen; das waere die Quote gewesen"
+        note = "  <- wird vorgeschlagen, aber ausdruecklich als unklar" \
+            if label == "unklar" else ""
         print(f"   {label:12} {len(hits):6} {_pct(sum(hits), len(hits)):>13}{note}")
 
 
@@ -231,24 +216,26 @@ def report_calibration(records: list[dict]) -> None:
               f"{mean_p:11.2f} {_pct(right, len(bucket)):>13}  {verdict}")
 
 
-def report_sweep(records: list[dict]) -> None:
-    """Nur regelgestützte Buchungen: die unscharfe Stufe hat kein p, die
-    Schwelle erreicht sie nicht, und mitgezählt würde sie die Spalte
-    "davon richtig" verwässern."""
-    rule_recs = [r for r in records if r["matches"]]
-    n = len(rule_recs)
-    print(f"\n4. SCHWELLE P_MIN_SUGGEST ({n} regelgestuetzte Buchungen)")
-    print(f"   {'Schwelle':10} {'Kat gefuellt':>14} {'davon richtig':>15} "
-          f"{'richtig/alle':>14} {'falsch/alle':>13}")
-    for p_min in SWEEP:
-        filled = right = 0
-        for rec in rule_recs:
-            values, _src, _p = decide(rec, p_min)
-            if values[0]:
-                filled += 1
-                right += values[0] == rec["truth"][0]
-        print(f"   p >= {p_min:.2f}  {_pct(filled, n):>14} {_pct(right, filled):>15} "
-              f"{_pct(right, n):>14} {_pct(filled - right, n):>13}")
+def report_boundaries(records: list[dict]) -> None:
+    """Wo trennt ein Schnitt durch p wirklich? Je Kandidat die Genauigkeit
+    unter und über ihm. Ein guter Schnitt hat einen grossen Abstand zwischen
+    beiden Spalten -- dort trennt das Label Verlaessliches von Geratenem.
+
+    Nur regelgestützte Buchungen: die unscharfe Stufe hat kein p und wäre in
+    jeder Zeile dieselbe Beimischung."""
+    rows = [(r["matches"][0][2]["kat"], r["truth"][0]) for r in records if r["matches"]]
+    print(f"\n4. LABELGRENZEN ({len(rows)} regelgestuetzte Buchungen)")
+    print(f"   {'Schnitt':10} {'n drunter':>11} {'richtig':>9}   "
+          f"{'n drueber':>11} {'richtig':>9}   Abstand")
+    for cut in SWEEP[1:]:
+        lo = [(f, t) for f, t in rows if f["p"] < cut]
+        hi = [(f, t) for f, t in rows if f["p"] >= cut]
+        if not lo or not hi:
+            continue
+        a = sum(f["value"] == t for f, t in lo) / len(lo)
+        b = sum(f["value"] == t for f, t in hi) / len(hi)
+        print(f"   p = {cut:.2f}   {len(lo):11} {100*a:8.1f} %   "
+              f"{len(hi):11} {100*b:8.1f} %   {100*(b-a):6.1f} pp")
 
 
 def report_tier_choice(records: list[dict], p_min: float) -> None:
@@ -286,8 +273,8 @@ def main() -> None:
     ap.add_argument("--test-months", type=int, default=DEFAULT_TEST_MONTHS)
     ap.add_argument("--lookback-months", type=int,
                     default=build_rules.DEFAULT_LOOKBACK_MONTHS)
-    ap.add_argument("--p-min", type=float, default=build_rules.P_MIN_SUGGEST,
-                    help="Schwelle fuer Tabelle 1 (Default: der eingebaute Wert)")
+    ap.add_argument("--p-min", type=float, default=build_rules.P_UNCLEAR,
+                    help="Grenze zum Label 'unklar' (Default: der eingebaute Wert)")
     args = ap.parse_args()
 
     fld = money_io.folders(args.test)
@@ -305,7 +292,7 @@ def main() -> None:
     report_accuracy(records, args.p_min)
     report_labels(records, args.p_min)
     report_calibration(records)
-    report_sweep(records)
+    report_boundaries(records)
     report_tier_choice(records, args.p_min)
 
 

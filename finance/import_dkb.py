@@ -536,10 +536,10 @@ def main() -> None:
     print(f"Vorschlag: {len(new_rows)} Buchungen -> {n_new} neu.")
     n_blank = sum(1 for r in new_rows if not r[MONEY_KAT_COL])
     if n_blank:
-        # Leere Kat ist seit der Kalibrierung der Normalfall und kein Unfall:
-        # categorize_import schlägt dünn belegte Kategorien absichtlich nicht
-        # vor. Erwähnen lohnt sich trotzdem -- solche Zeilen zählen für
-        # build_rules nicht mit, die Lücke pflanzt sich also fort.
+        # categorize_import lässt Kat nur dann leer, wenn gar keine Stufe
+        # getroffen hat (Konfidenz "-"); dünn belegte Vorschläge macht es
+        # trotzdem und nennt sie "unklar". Erwähnen lohnt sich, denn solche
+        # Zeilen zählen für build_rules nicht mit: die Lücke pflanzt sich fort.
         print(f"{n_blank} Buchung(en) ohne Kat -- unkategorisiert übernommen; "
               f"sie zählen erst für build_rules, wenn Kat gefüllt ist.")
     if n_new == 0 or args.dry_run:

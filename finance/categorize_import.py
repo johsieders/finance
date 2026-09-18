@@ -66,7 +66,7 @@ class Suggestion:
     kat: str
     ukat: str
     bem: str
-    confidence: str  # "hoch" | "mittel" | "niedrig" | "unscharf" | "-"
+    confidence: str  # "hoch" | "mittel" | "niedrig" | "unklar" | "unscharf" | "-"
     source: str  # menschenlesbare Herkunftsangabe, zum Gegenlesen
 
 
@@ -117,14 +117,13 @@ class Categorizer:
 
         Die Schwelle muss in die Auswahl hinein, nicht erst hinter sie: sonst
         verdeckt eine dünn belegte Regel der feinen Stufe eine dicht belegte
-        der groben, und das Feld bleibt leer, obwohl die Historie eindeutig
+        der groben, und man bekommt ein "unklar", wo die Historie eindeutig
         ist (1/1 aus "zweck" vor 133/135 aus "empf").
 
         Nach dem höchsten p auszuwählen wäre der naheliegende nächste
-        Schritt und ist gemessen schlechter: 84,8 % gegen 86,3 % auf der Kat,
-        und von den Vorschlägen, in denen sich beide unterschieden, wurde
-        keiner dadurch richtig, aber acht falsch (`python -m finance.evaluate`,
-        Tabelle 4). p kennt nur Häufigkeiten. Dass eine Zweck-Signatur den
+        Schritt und ist gemessen schlechter: 85,0 % gegen 86,5 % richtige Kat
+        über alle regelgestützten Buchungen (`python -m finance.evaluate`,
+        Tabelle 5). p kennt nur Häufigkeiten. Dass eine Zweck-Signatur den
         Sachverhalt schärfer fasst als der Empfänger allein, steht in keinem
         Zähler -- das weiß nur die Stufenreihenfolge."""
         fallback = None
@@ -135,9 +134,9 @@ class Categorizer:
             rule = entries.get(key)
             if rule is None:
                 continue
-            if rule["kat"]["p"] >= build_rules.P_MIN_SUGGEST:
+            if rule["kat"]["p"] >= build_rules.P_UNCLEAR:
                 return tier.name, key, rule
-            if fallback is None:  # nur noch für die Begründung in der Quelle
+            if fallback is None:  # nur "unklar" zu bieten, aber besser als nichts
                 fallback = (tier.name, key, rule)
         return fallback
 
@@ -153,23 +152,18 @@ class Categorizer:
                              for label, f in zip(("Kat", "UKat", "Bem"), fields))
                 + ")"
             )
-            # p ist präfixweise monoton fallend (Kat >= Kat+UKat >= Tripel),
-            # die Schwelle schneidet also von hinten ab: Kat ohne Bem kommt
-            # vor, Bem ohne Kat nicht.
-            kat, ukat, bem = (f["value"] if f["p"] >= build_rules.P_MIN_SUGGEST else ""
-                              for f in fields)
-            if kat:
-                return Suggestion(kat, ukat, bem,
-                                  build_rules.confidence_label(fields[0]["p"]), detail)
-            # Zu dünn zum Vorschlagen, aber nicht zu dünn zum Erwähnen: der
-            # Wert steht in der Quelle, nur eben nicht in der Kat-Spalte.
+            # Alle drei Felder werden gefüllt, auch die mit kleinem p: ein
+            # Vorschlag, der in 56 % der Fälle stimmt, ist mehr wert als ein
+            # leeres Feld, solange das Label ihn als "unklar" ausweist.
             #
-            # Hier NICHT auf die unscharfe Stufe durchfallen. Gemessen auf den
-            # 121 unterdrückten Testbuchungen trifft sie genau dieselben
-            # 56,2 % und schweigt zusätzlich 37 mal -- kein Wunder, ihre
-            # Tokenüberlappung findet als nächsten Nachbarn meist denselben
-            # Empfänger, über den die Regel schon dünn belegt ist.
-            return Suggestion("", "", "", "-", f"zu dünn: {detail} -> {fields[0]['value']}")
+            # Das Label kommt aus p der Kat, der Spalte, die beim Korrigieren
+            # zuerst zählt. Die anderen beiden können deutlich schlechter
+            # dastehen -- p fällt präfixweise monoton (Kat >= Kat+UKat >=
+            # Tripel) --, ein "hoch" kann also eine Bem mit p = 0,12
+            # enthalten. Wer Bem prüfen will, liest die drei p in der Quelle.
+            return Suggestion(fields[0]["value"], fields[1]["value"],
+                              fields[2]["value"],
+                              build_rules.confidence_label(fields[0]["p"]), detail)
 
         if self._fuzzy_pool:
             search_tok = _tokens(booking.empf + " " + booking.text)
@@ -293,7 +287,7 @@ def main() -> None:
     write_suggestion_csv(out_path, suggestions, plain=args.plain)
 
     counts = Counter(r["Konfidenz"] for r in suggestions)
-    order = ["hoch", "mittel", "niedrig", "unscharf", "-"]
+    order = ["hoch", "mittel", "niedrig", "unklar", "unscharf", "-"]
     stat = ", ".join(f"{k}: {counts[k]}" for k in order if counts[k])
     print(f"{len(suggestions)} gebuchte Buchungen ({stat})"
           + (f", {n_skipped} nicht gebuchte übersprungen" if n_skipped else ""))

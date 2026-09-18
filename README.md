@@ -103,45 +103,50 @@ Belegmenge wächst:
 |---|---|---|---|---|---|---|
 | `p` | 0,22 | 0,37 | 0,61 | 0,76 | 0,87 | 0,95 |
 
-Daraus die drei Labels und die Schwelle -- `hoch` verlangt jetzt ~20 Belege,
-nicht mehr zwei:
+Daraus die Labels -- `hoch` verlangt jetzt ~20 Belege, nicht mehr zwei:
 
 | `p` | Label | gemessene Kat-Trefferquote |
 |---|---|---|
-| >= 0,85 | `hoch` | 98,5 % |
+| >= 0,85 | `hoch` | 99,2 % |
 | >= 0,60 | `mittel` | 96,1 % |
 | >= 0,35 | `niedrig` | 90,7 % |
-| < 0,35 | *kein Vorschlag, Feld bleibt leer* | (56,2 %) |
+| < 0,35 | `unklar` | 56,2 % |
 
 Die unscharfe Stufe hat kein `p` und trägt deshalb ihr eigenes Label
 `unscharf` (67,7 %) -- mit "niedrig" in einen Topf geworfen wäre die Spalte
 wieder so unbrauchbar wie vorher.
 
-Die letzte Zeile ist die Rechtfertigung der Schwelle: unterhalb von 0,35 wäre
-der Vorschlag ein Münzwurf gewesen. Ihn zu unterdrücken kostet 23 % Abdeckung
-und senkt die Fehlvorschläge von 13,7 % auf 3,8 % der regelgestützten
-Buchungen. Der Grund für diese Abwägung: ein angenommener Fehlvorschlag landet
-in `money.csv` und damit in den nächsten Regeln -- ein leeres Feld kostet nur
-Tipparbeit.
+**Unterdrückt wird nichts.** Auch unterhalb von 0,35 wird vorgeschlagen, das
+Label heißt dann `unklar`. Ein Vorschlag, der in 56 % der Fälle stimmt, ist
+mehr wert als ein leeres Feld, solange danebensteht, dass man ihm nicht
+glauben soll: korrigieren geht schneller als tippen. Das Urteil fällt beim
+Durchsehen, nicht im Programm.
+
+Dass 0,35 die richtige Stelle für den Schnitt ist, sagt Tabelle 4 von
+`evaluate`: dort trennt das Label am schärfsten, 56,2 % darunter gegen
+95,4 % darüber, ein Abstand von 39 Prozentpunkten. Bei 0,45 sind es nur noch
+27, bei 0,85 knapp 17.
 
 **Je Feld, nicht je Tripel.** `p` wird für Kat, Kat+UKat und das Tripel
 getrennt gerechnet, denn ein Schlüssel kann eine völlig sichere Kat und eine
-hoffnungslose Bem haben -- bei freiem Text ist das der Normalfall. Ein
-Tripel-`p` würde die sichere Kat mit unterdrücken. Beispiel aus dem echten
-Auszug: `Siedersleben,Johannes,Prof.Dr.`, 54 Belege, Kat 0,95 / UKat 0,73 /
-Bem 0,12 → Kat und UKat werden gefüllt, Bem bleibt leer. 27 von 118 Buchungen
-sind so teilbefüllt.
+hoffnungslose Bem haben -- bei freiem Text ist das der Normalfall. Beispiel
+aus dem echten Auszug: `Siedersleben,Johannes,Prof.Dr.`, 54 Belege,
+Kat 0,95 / UKat 0,73 / Bem 0,12. Alle drei Felder werden gefüllt, aber das
+Label der Zeile kommt aus der Kat -- ein `hoch` kann also eine Bem
+enthalten, die auf `p` = 0,12 ruht. Die drei `p` stehen deshalb einzeln in
+der Spalte `Quelle`; wer Bem prüfen will, liest dort nach.
 
 **Belegmenge schlägt in beide Richtungen aus.** `Johannes Siedersleben` hat
 267 Belege und trotzdem `p` = 0,32, weil es eigene Umbuchungen in viele
-Kategorien sind: kein Vorschlag. Die Stufe `zweck` fängt daraus die eindeutigen
+Kategorien sind: `unklar`. Die Stufe `zweck` fängt daraus die eindeutigen
 Fälle wieder auf (eine bestimmte Zweck-Signatur, 4 Belege, `p` = 0,55).
 
-Die Schwelle geht deshalb in die *Stufenauswahl* ein und nicht erst hinter sie:
-genommen wird die erste Stufe, die die Schwelle besteht. Sonst verdeckte eine
-dünn belegte feine Regel eine dicht belegte grobe. Nach dem höchsten `p`
+Die Grenze geht deshalb in die *Stufenauswahl* ein und nicht erst hinter sie:
+genommen wird die erste Stufe, die sie besteht. Sonst verdeckte eine
+dünn belegte feine Regel eine dicht belegte grobe und man bekäme ein
+`unklar`, wo die Historie eindeutig ist. Nach dem höchsten `p`
 auszuwählen wäre der naheliegende nächste Schritt und ist gemessen schlechter
-(84,8 % gegen 86,3 %) -- `p` kennt nur Häufigkeiten, dass eine Zweck-Signatur
+(85,0 % gegen 86,5 %) -- `p` kennt nur Häufigkeiten, dass eine Zweck-Signatur
 den Sachverhalt schärfer fasst als der Empfänger allein steht in keinem
 Zähler.
 
@@ -247,15 +252,15 @@ Lastschriften ist das der halbe Datensatz.
 Fünf Tabellen: Abdeckung und Genauigkeit je Feld; was die Labels wert sind
 (die Tabelle oben); die Kalibrierungsprobe (`p` ist eine untere Schranke, die
 gemessene Quote muss also *über* dem mittleren `p` liegen -- sonst ist die
-Rechnung kaputt); die Schwelle zum Durchprobieren; der Vergleich der
-Stufenauswahl. Alle Zahlen in diesem README kommen von hier und sind mit
+Rechnung kaputt); die Labelgrenzen, je Kandidat die Genauigkeit unter und
+über ihm; der Vergleich der Stufenauswahl. Alle Zahlen in diesem README kommen von hier und sind mit
 `--split`/`--test-months` reproduzierbar.
 
 ## Offen
 
 * **Die unscharfe Stufe** ist das schwächste Glied: 198 von 853 Testbuchungen
   landen dort, mit 67,7 % Kat-Trefferquote, und sie hat kein `p`, das die
-  Schwelle anwenden könnte. Tokenüberlappung durch Nachbarschaft in einem
+  Grenze anwenden könnte. Tokenüberlappung durch Nachbarschaft in einem
   Einbettungsraum zu ersetzen würde "REWE SAGT DANKE" neben "REWE Markt GmbH
   Fil. 4711" legen; Gewicht über die Ähnlichkeit ergäbe auch endlich ein `p`.
 * **Erstbuchungen ohne Historie** (122 von 853) kann keine Stufe treffen, weil
