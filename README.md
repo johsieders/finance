@@ -55,6 +55,7 @@ Die Daten liegen außerhalb des Repositorys, unter `~/Documents/finance`:
 finance/
   money/money.csv                  die Buchhaltung selbst
   money/money.html                 Pivot-Ansicht, von finance.pivot erzeugt
+  money/money-baender.html         Baender-Ansicht, von finance.display_money
   umsatzlisten/DD-MM-YYYY_...csv   Kontoauszüge, wie von der DKB geliefert
   rules/rules.json                 abgeleiteter Regel-Cache
   suggestions/....suggestion.csv   Vorschläge zum Korrigieren
@@ -252,6 +253,47 @@ Kat und UKat werden getrimmt, sonst stuende `"MF "` als eigene Kategorie neben
 verschluckt -- in `money.csv` sind sie Tippfehler, und `build_rules` macht
 daraus ein eigenes Tripel. Beim ersten Lauf waren es drei: `Kat='MF '`,
 `UKat=' BR'`, `UKat='GU '`.
+
+## `display_money` -- Kat als Baender ueber die Jahre
+
+```bash
+.venv/bin/python -m finance.display_money                        # die 8 groessten Kat
+.venv/bin/python -m finance.display_money --kat EK FG L1 SA      # eine Auswahl
+.venv/bin/python -m finance.display_money --from-year 2016 --top 5
+.venv/bin/python -m finance.display_money --no-andere --no-open
+```
+
+Ein Band je Kat, Jahre von links nach rechts, das laufende Jahr rechts. Die
+Dicke ist der Jahresbetrag: was hereinkommt stapelt sich ueber der Nulllinie,
+was hinausgeht darunter. Oben liest man also die Einnahmenseite des Jahres,
+unten die Ausgabenseite, und der Abstand zwischen beiden ist der Saldo.
+
+Eingabe ist ein Zeitraum und eine Menge von Kat. Ohne `--kat` nimmt das
+Programm die `--top N` groessten und faltet den Rest zu `Andere` zusammen,
+damit das Bild vollstaendig bleibt; mit `--kat` zeigt es nur die Auswahl
+(`--andere` holt den Rest wieder dazu, `--no-andere` laesst ihn auch im
+Default weg). Mehr als **acht** Kat lehnt es ab: so viele Farbtoene hat die
+Palette, bevor zwei davon fuer Farbenblinde gleich aussehen.
+
+Ein Klick auf ein Band oder einen Legendeneintrag klappt die UKat auf -- am
+besten eine Kat auf einmal, alle zusammen sind neunzig Baender und kein Bild
+mehr. Aufgeklappt wird **neu gestapelt** und das Band nicht von innen
+unterteilt, denn unterteilen geht nicht: in gut einem Fuenftel aller
+Kat-Jahre haben die UKat gemischte Vorzeichen (Kat = +100 aus +150 und -50),
+und dann ist die Summe der UKat-Dicken groesser als die Dicke der Kat.
+Solange alle UKat das Vorzeichen ihrer Kat haben, bleibt die Huelle darum
+exakt dieselbe; wo sie es nicht tun, aendert sie sich -- das ist die
+Auskunft, dass in dieser Kategorie beides steckt.
+
+Zeigen auf ein Jahr nennt alle Posten dieses Jahres samt Saldo, der Knopf
+`Tabelle` zeigt dieselben Zahlen ohne Farbe. Ein Band braucht zwei Jahre;
+fuer ein einzelnes ist `pivot` die richtige Ansicht.
+
+Gelesen und aggregiert wird mit `pivot.load` und `pivot.pivot`, damit Tabelle
+und Baender nicht auseinanderlaufen -- die Saldo-Zeile hier ist dieselbe wie
+die Gesamt-Zeile dort. Die HTML-Datei landet **neben ihrer Quelle**:
+`money.csv` -> `money/money-baender.html`, nicht im Repository. In sich
+geschlossen, kein CDN, kein Netz.
 
 ## `evaluate` -- die Zahlen nachrechnen
 
