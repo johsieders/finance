@@ -2,7 +2,7 @@
 import_dkb.py — trägt eine korrigierte Vorschlagsdatei in money.csv ein.
 
 Eingabe ist NICHT mehr die rohe DKB-Umsatzliste, sondern die von
-categorize_import.py erzeugte und von dir in Excel korrigierte
+categorize_import.py erzeugte und von dir korrigierte
 Vorschlagsdatei (suggestions/<auszug>.suggestion.csv). Sie hat dieselbe
 Spaltenstruktur wie money.csv, mit ausgefüllten Kat/UKat/Bem. Jede neue
 Buchung wird zweimal eingetragen: als Ist-Zeile und -- um ein Jahr in die
@@ -285,7 +285,7 @@ def read_money_csv(path: Path) -> list[dict]:
 
 
 def read_suggestion_csv(path: Path) -> list[dict]:
-    """Liest die (in Excel korrigierte) Vorschlagsdatei. Gleiche Struktur wie
+    """Liest die korrigierte Vorschlagsdatei. Gleiche Struktur wie
     money.csv; MF/MT/Saldo sind leer und werden hier berechnet. Zusätzliche
     Spalten am Zeilenende (Konfidenz, Quelle) werden ignoriert, eine
     Vorlaufzeile vor der Kopfzeile ebenfalls."""
@@ -536,7 +536,12 @@ def main() -> None:
     print(f"Vorschlag: {len(new_rows)} Buchungen -> {n_new} neu.")
     n_blank = sum(1 for r in new_rows if not r[MONEY_KAT_COL])
     if n_blank:
-        print(f"Achtung: {n_blank} Buchung(en) ohne Kat -- unkategorisiert übernommen.")
+        # Leere Kat ist seit der Kalibrierung der Normalfall und kein Unfall:
+        # categorize_import schlägt dünn belegte Kategorien absichtlich nicht
+        # vor. Erwähnen lohnt sich trotzdem -- solche Zeilen zählen für
+        # build_rules nicht mit, die Lücke pflanzt sich also fort.
+        print(f"{n_blank} Buchung(en) ohne Kat -- unkategorisiert übernommen; "
+              f"sie zählen erst für build_rules, wenn Kat gefüllt ist.")
     if n_new == 0 or args.dry_run:
         return
 

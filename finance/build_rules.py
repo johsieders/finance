@@ -53,6 +53,7 @@ import argparse
 import calendar
 import datetime as dt
 import json
+import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -77,10 +78,23 @@ PAYPAL_SUBMERCHANT_RE = re.compile(r"/PP\.\d+\.PP/\.?\s*([^,]+),")
 ZWECK_DATE_RE = re.compile(r"^\d{1,2}\.\d{1,2}\.(?:\d{2}|\d{4})\.?$")
 ZWECK_YEAR_RE = re.compile(r"^(?:19|20)\d{2}$")
 
-# Ab welchem Anteil des häufigsten Treffers an allen Treffern für diesen
-# Schlüssel gilt die Regel als "hoch" statt "mittel".
-HIGH_CONFIDENCE_RATIO = 0.6
-HIGH_CONFIDENCE_MIN_COUNT = 2
+# Konfidenz ist die UNTERE SCHRANKE eines einseitigen 95%-Kredibilitäts-
+# intervalls der Beta-Posteriori, nicht der rohe Anteil count/total. Der rohe
+# Anteil kann Belegmenge nicht von Einigkeit unterscheiden: 2/2 und 133/135
+# sind beide "100 % einig", aber nur das zweite ist ein Versprechen. Die
+# Schranke trennt sie (0,37 vs 0,96), weil sie mit der Belegmenge wächst.
+CREDIBLE_LEVEL = 0.05  # 5 %-Quantil = "mit 95 % Sicherheit mindestens p"
+
+# Schwellen auf p. Als Anhaltspunkt, bei lückenloser Einigkeit:
+#   1/1 -> 0,22   2/2 -> 0,37   5/5 -> 0,61   10/10 -> 0,76   20/20 -> 0,87
+# "hoch" verlangt damit ~20 Belege, nicht mehr zwei.
+P_HIGH = 0.85
+P_MEDIUM = 0.60
+
+# Darunter wird das Feld NICHT vorgeschlagen, sondern leer gelassen. Ein
+# angenommener Fehlvorschlag landet in money.csv und damit in den nächsten
+# Regeln -- ein leeres Feld kostet nur Tipparbeit.
+P_MIN_SUGGEST = 0.35
 
 # Eine Zweck-Signatur, die nur einmal vorkommt, hat sich noch nicht als
 # wiederkehrend erwiesen; sie bläht rules.json auf (1850 statt 248 Einträge),
@@ -193,17 +207,101 @@ def months_ago(d: dt.date, months: int) -> dt.date:
     return dt.date(year, month, day)
 
 
-def _rule_entry(counter: Counter) -> dict:
-    (kat, ukat, bem), count = counter.most_common(1)[0]
-    total = sum(counter.values())
-    ratio = count / total
-    confidence = (
-        "hoch" if (ratio >= HIGH_CONFIDENCE_RATIO and total >= HIGH_CONFIDENCE_MIN_COUNT)
-        else "mittel"
+def _beta_cdf(x: float, a: int, b: int) -> float:
+    """P(Beta(a,b) <= x) für ganzzahlige a, b. Gleich dem Binomial-Oberschwanz
+    P(Bin(a+b-1, x) >= a), also eine endliche Summe mit b Gliedern -- und b ist
+    hier 'Zahl der Abweichler + 1', meist 1 bis 3. Terme in Logarithmen, damit
+    auch Schlüssel mit hunderten Belegen nicht überlaufen."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    n = a + b - 1
+    log_x, log_1x = math.log(x), math.log1p(-x)
+    return math.fsum(
+        math.exp(math.lgamma(n + 1) - math.lgamma(j + 1) - math.lgamma(n - j + 1)
+                 + j * log_x + (n - j) * log_1x)
+        for j in range(a, n + 1)
     )
+
+
+def beta_lower_bound(count: int, total: int, level: float = CREDIBLE_LEVEL) -> float:
+    """Untere Schranke für die Trefferwahrscheinlichkeit einer Regel, die
+    `count` von `total` Belegen auf sich vereint: das `level`-Quantil der
+    Posteriori Beta(count+1, total-count+1) -- Laplace-Prior Beta(1,1), also
+    "vor allen Beobachtungen ist jede Trefferquote gleich plausibel".
+
+    Bei lückenloser Einigkeit (count == total) ist das geschlossen
+    level**(1/(total+1)); der allgemeine Fall per Bisektion, 50 Schritte."""
+    a, b = count + 1, total - count + 1
+    if b == 1:  # keine Abweichler: CDF ist x**(total+1)
+        return level ** (1.0 / (total + 1))
+    lo, hi = 0.0, 1.0
+    for _ in range(50):
+        mid = 0.5 * (lo + hi)
+        if _beta_cdf(mid, a, b) < level:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def confidence_label(p: float) -> str:
+    """p -> das Wort, das in der Konfidenz-Spalte der Vorschlagsdatei steht."""
+    if p >= P_HIGH:
+        return "hoch"
+    if p >= P_MEDIUM:
+        return "mittel"
+    if p >= P_MIN_SUGGEST:
+        return "niedrig"
+    return "-"
+
+
+def _mode(counts: Counter) -> tuple[str, int]:
+    """Häufigster Wert. Gleichstand alphabetisch aufgelöst, damit rules.json
+    bei gleicher Historie Zeichen für Zeichen gleich bleibt und diffbar ist."""
+    return max(counts.items(), key=lambda kv: (kv[1], kv[0]))
+
+
+def _field(value: str, count: int, total: int) -> dict:
+    return {"value": value, "count": count,
+            "p": round(beta_lower_bound(count, total), 3)}
+
+
+def _rule_entry(counter: Counter) -> dict:
+    """Beobachtete Tripel eines Schlüssels -> Regeleintrag mit je Feld einem
+    eigenen p. Feldweise und nicht als Tripel, weil ein Schlüssel eine völlig
+    sichere Kat und eine hoffnungslose Bem haben kann -- bei freiem Text ist
+    das der Normalfall. Ein Tripel-p würde die sichere Kat mit unterdrücken.
+
+    Die Felder werden als PRÄFIX gezählt: p_kat = "Kat stimmt",
+    p_ukat = "Kat und UKat stimmen", p_bem = "alle drei stimmen". Damit ist
+    p monoton fallend, und UKat wird nur unter der schon gewählten Kat
+    gesucht (sonst käme ein inkohärentes Paar heraus)."""
+    total = sum(counter.values())
+
+    kat_counts: Counter = Counter()
+    for (kat, _u, _b), n in counter.items():
+        kat_counts[kat] += n
+    kat, kat_n = _mode(kat_counts)
+
+    ukat_counts: Counter = Counter()
+    for (k, ukat, _b), n in counter.items():
+        if k == kat:
+            ukat_counts[ukat] += n
+    ukat, ukat_n = _mode(ukat_counts)
+
+    bem_counts: Counter = Counter()
+    for (k, u, bem), n in counter.items():
+        if k == kat and u == ukat:
+            bem_counts[bem] += n
+    bem, bem_n = _mode(bem_counts)
+
     return {
-        "kat": kat, "ukat": ukat, "bem": bem,
-        "count": count, "total": total, "confidence": confidence,
+        "total": total,
+        "kat": _field(kat, kat_n, total),
+        "ukat": _field(ukat, ukat_n, total),
+        "bem": _field(bem, bem_n, total),
     }
 
 
@@ -274,6 +372,7 @@ def build_rules(
         "source_rows_total": len(money_rows),
         "source_rows_used": len(recent),
         "min_support": {t.name: min_support.get(t.name, t.min_support) for t in TIERS},
+        "credible_level": CREDIBLE_LEVEL,
         "tier_order": [t.name for t in TIERS],
         "tiers": tiers,
     }
@@ -313,8 +412,10 @@ def main() -> None:
     )
     for name in rules["tier_order"]:
         entries = rules["tiers"][name]
-        n_hoch = sum(1 for v in entries.values() if v["confidence"] == "hoch")
-        print(f"  {name:20} {len(entries):5} Regeln ({n_hoch} davon hoch)")
+        labels = Counter(confidence_label(v["kat"]["p"]) for v in entries.values())
+        detail = ", ".join(f"{labels[k]} {k}" for k in ("hoch", "mittel", "niedrig", "-")
+                           if labels[k])
+        print(f"  {name:20} {len(entries):5} Regeln (Kat: {detail})")
     print(f"Geschrieben nach {out_path}")
 
 

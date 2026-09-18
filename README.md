@@ -20,7 +20,7 @@ python3 -m finance.build_rules
 # 3. Vorschlagsdatei erzeugen: suggestions/<auszug>.suggestion.csv
 python3 -m finance.categorize_import
 
-# 4. Kat/UKat/Bem in Excel korrigieren und als CSV zurückspeichern
+# 4. Kat/UKat/Bem korrigieren (am besten in PyCharm); Excel, Numbers o.ä können Probleme mit Sonderzeichen oder Delimitern verursachen.
 
 # 5. Die korrigierte Datei in money.csv eintragen
 python3 -m finance.import_dkb
@@ -46,7 +46,7 @@ finance/
 von `finance`. Dort lassen sich vergangene Jahre gefahrlos nachspielen, bevor
 etwas die echte Buchhaltung anfasst.
 
-## Die drei Programme
+## Die vier Programme
 
 ### `build_rules`
 
@@ -87,6 +87,63 @@ bestehenden gehängt wird; sie darf sich auf beliebige externe Quellen stützen
 Nenner von `money.csv`-Zeile und DKB-Zeile -- ohne diese Brücke müsste jede
 Stufe zweimal geschrieben werden, einmal je Spaltenschema.
 
+#### Konfidenz: was eine Regel verspricht
+
+Jedes Feld jeder Regel trägt ein `p` -- die untere Schranke eines einseitigen
+95%-Kredibilitätsintervalls der Posteriori `Beta(count+1, total-count+1)`,
+also "mit 95 % Sicherheit trifft diese Regel in mindestens p der Fälle".
+
+Der rohe Anteil `count/total` kann das nicht leisten, weil er Belegmenge nicht
+von Einigkeit unterscheidet: 2/2 und 133/135 sind beide "einig", aber nur das
+zweite ist ein Versprechen. Die Schranke trennt sie, weil sie mit der
+Belegmenge wächst:
+
+| Belege | 1/1 | 2/2 | 5/5 | 10/10 | 20/20 | 133/135 |
+|---|---|---|---|---|---|---|
+| `p` | 0,22 | 0,37 | 0,61 | 0,76 | 0,87 | 0,95 |
+
+Daraus die drei Labels und die Schwelle -- `hoch` verlangt jetzt ~20 Belege,
+nicht mehr zwei:
+
+| `p` | Label | gemessene Kat-Trefferquote |
+|---|---|---|
+| >= 0,85 | `hoch` | 98,5 % |
+| >= 0,60 | `mittel` | 96,1 % |
+| >= 0,35 | `niedrig` | 90,7 % |
+| < 0,35 | *kein Vorschlag, Feld bleibt leer* | (56,2 %) |
+
+Die unscharfe Stufe hat kein `p` und trägt deshalb ihr eigenes Label
+`unscharf` (67,7 %) -- mit "niedrig" in einen Topf geworfen wäre die Spalte
+wieder so unbrauchbar wie vorher.
+
+Die letzte Zeile ist die Rechtfertigung der Schwelle: unterhalb von 0,35 wäre
+der Vorschlag ein Münzwurf gewesen. Ihn zu unterdrücken kostet 23 % Abdeckung
+und senkt die Fehlvorschläge von 13,7 % auf 3,8 % der regelgestützten
+Buchungen. Der Grund für diese Abwägung: ein angenommener Fehlvorschlag landet
+in `money.csv` und damit in den nächsten Regeln -- ein leeres Feld kostet nur
+Tipparbeit.
+
+**Je Feld, nicht je Tripel.** `p` wird für Kat, Kat+UKat und das Tripel
+getrennt gerechnet, denn ein Schlüssel kann eine völlig sichere Kat und eine
+hoffnungslose Bem haben -- bei freiem Text ist das der Normalfall. Ein
+Tripel-`p` würde die sichere Kat mit unterdrücken. Beispiel aus dem echten
+Auszug: `Siedersleben,Johannes,Prof.Dr.`, 54 Belege, Kat 0,95 / UKat 0,73 /
+Bem 0,12 → Kat und UKat werden gefüllt, Bem bleibt leer. 27 von 118 Buchungen
+sind so teilbefüllt.
+
+**Belegmenge schlägt in beide Richtungen aus.** `Johannes Siedersleben` hat
+267 Belege und trotzdem `p` = 0,32, weil es eigene Umbuchungen in viele
+Kategorien sind: kein Vorschlag. Die Stufe `zweck` fängt daraus die eindeutigen
+Fälle wieder auf (eine bestimmte Zweck-Signatur, 4 Belege, `p` = 0,55).
+
+Die Schwelle geht deshalb in die *Stufenauswahl* ein und nicht erst hinter sie:
+genommen wird die erste Stufe, die die Schwelle besteht. Sonst verdeckte eine
+dünn belegte feine Regel eine dicht belegte grobe. Nach dem höchsten `p`
+auszuwählen wäre der naheliegende nächste Schritt und ist gemessen schlechter
+(84,8 % gegen 86,3 %) -- `p` kennt nur Häufigkeiten, dass eine Zweck-Signatur
+den Sachverhalt schärfer fasst als der Empfänger allein steht in keinem
+Zähler.
+
 ### `categorize_import`
 
 Umsatzliste + `rules.json` → Vorschlagsdatei, in der Spaltenstruktur von
@@ -96,6 +153,8 @@ Umsatzliste + `rules.json` → Vorschlagsdatei, in der Spaltenstruktur von
 Hinten stehen zwei zusätzliche Spalten, `Konfidenz` und `Quelle`: sie sagen,
 welcher Vorschlag auf 133 gleichen Buchungen beruht und welcher auf geratener
 Tokenüberlappung. `import_dkb` ignoriert sie, `--plain` lässt sie weg.
+`Quelle` nennt Stufe, Schlüssel, Belegzahl und die drei `p` -- beim Korrigieren
+sagt das, ob eine leere Kat an dünner Historie oder an Uneinigkeit liegt.
 
 Nach den Regelstufen folgt als letztes Netz eine unscharfe Stufe, die direkt
 gegen `money.csv` läuft (Tokenüberlappung über Empfänger + Verwendungszweck).
@@ -109,8 +168,8 @@ eingetragen: als Ist-Zeile und als F-Zeile ein Jahr später. Der damit obsolete
 Teil des alten F-Blocks fällt weg, MT und Saldo werden für alles darüber
 fortgeschrieben.
 
-Die Vorschlagsdatei kommt aus Excel zurück, also toleriert der Leser, was Excel
-anrichtet: eine Vorlaufzeile über der Kopfzeile, `;` oder `,` als Trenner,
+Die Vorschlagsdatei kann aus einem Tabellenprogramm zurückkommen, also
+toleriert der Leser, was Excel & Co. anrichten: eine Vorlaufzeile über der Kopfzeile, `;` oder `,` als Trenner,
 zweistellige Jahre, Beträge mit oder ohne `€`. Was Excel nicht darf: die Spalte
 `MF` füllen oder Datum bzw. Betrag leeren -- dann bricht der Import mit
 Zeilennummer ab.
@@ -141,11 +200,37 @@ Buchungen.
 Die Datei ist absteigend nach Datum sortiert: oben der F-Block, darunter die
 Ist-Buchungen. `Saldo[i] = Betrag[i] + Saldo[i+1]`.
 
+## `evaluate` -- die Zahlen nachrechnen
+
+```bash
+python3 -m finance.evaluate                    # Training bis 01.01.2026, Test 2026
+python3 -m finance.evaluate --split 01.01.2025 --test-months 12
+```
+
+Zeitlicher Split, keine Kreuzvalidierung: Regeln aus allen Ist-Buchungen vor
+dem Stichtag, gemessen an denen danach. Eine zufällige Aufteilung wäre
+geschönt -- sie ließe Regeln aus Buchungen lernen, die zum
+Vorhersagezeitpunkt noch nicht existierten, und bei monatlich wiederkehrenden
+Lastschriften ist das der halbe Datensatz.
+
+Fünf Tabellen: Abdeckung und Genauigkeit je Feld; was die Labels wert sind
+(die Tabelle oben); die Kalibrierungsprobe (`p` ist eine untere Schranke, die
+gemessene Quote muss also *über* dem mittleren `p` liegen -- sonst ist die
+Rechnung kaputt); die Schwelle zum Durchprobieren; der Vergleich der
+Stufenauswahl. Alle Zahlen in diesem README kommen von hier und sind mit
+`--split`/`--test-months` reproduzierbar.
+
 ## Offen
 
-* **Kalibrierung**: Kat unterhalb einer Belegschwelle leer lassen statt einen
-  selbstsicher aussehenden Vorschlag zu machen; Konfidenz soll die Menge der
-  Belege widerspiegeln, nicht nur deren Einigkeit (2/2 gilt heute als "hoch").
+* **Die unscharfe Stufe** ist das schwächste Glied: 198 von 853 Testbuchungen
+  landen dort, mit 67,7 % Kat-Trefferquote, und sie hat kein `p`, das die
+  Schwelle anwenden könnte. Tokenüberlappung durch Nachbarschaft in einem
+  Einbettungsraum zu ersetzen würde "REWE SAGT DANKE" neben "REWE Markt GmbH
+  Fil. 4711" legen; Gewicht über die Ähnlichkeit ergäbe auch endlich ein `p`.
+* **Erstbuchungen ohne Historie** (122 von 853) kann keine Stufe treffen, weil
+  die Antwort nicht in `money.csv` steht: dass "Zooplus" Tierbedarf ist, weiß
+  nur Weltwissen. Das ist die einzige Stelle, an der ein Sprachmodell etwas
+  beiträgt, was die Historie nicht hergibt -- und nur dort.
 * **Amazon**: Bestellbestätigungs-Mails auswerten, um Bem zu füllen -- die
   Bank weiß nicht, was gekauft wurde, und genau da liegt der Rest der
   Trefferquote.

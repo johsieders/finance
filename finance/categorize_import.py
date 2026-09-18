@@ -2,9 +2,9 @@
 categorize_import.py — macht aus einer DKB-Umsatzliste eine Vorschlagsdatei.
 
 Ausgabe ist eine CSV in der Spaltenstruktur von money.csv, mit vorgeschlagenen
-Kat/UKat/Bem: suggestions/<auszug>.suggestion.csv. Die korrigierst du in Excel
-und exportierst sie wieder als CSV; import_dkb.py trägt dann genau diese Datei
-in money.csv ein. Hier wird NICHTS in money.csv geschrieben.
+Kat/UKat/Bem: suggestions/<auszug>.suggestion.csv. Die korrigierst du von Hand
+(am besten in PyCharm, das die Datei unangetastet lässt); import_dkb.py trägt
+dann genau diese Datei in money.csv ein. Hier wird NICHTS in money.csv geschrieben.
 
 Drei Spalten bleiben leer, weil sie erst beim Eintragen entstehen: MF (Ist/F),
 MT (laufende Nummer) und Saldo. Hinten hängen zwei zusätzliche Spalten,
@@ -17,7 +17,7 @@ dort festgelegten Reihenfolge abgefragt: paypal_submerchant, zweck, empf.
 Danach folgt als letztes Netz eine unscharfe Stufe, die NICHT aus rules.json
 kommt, sondern direkt gegen money.csv läuft (Tokenüberlappung über
 Empfänger + Verwendungszweck, gleicher Lookback-Zeitraum wie
-build_rules.select_recent). Sie liefert nur "niedrig" -- explizit zum
+build_rules.select_recent). Sie liefert nur "unscharf" -- explizit zum
 Gegenlesen gedacht. Grund für den Sonderweg: ein kompaktes rules.json ist
 schneller zu lesen, zu diffen und zu versionieren als eine Kopie eines
 Gutteils der Historie.
@@ -66,7 +66,7 @@ class Suggestion:
     kat: str
     ukat: str
     bem: str
-    confidence: str  # "hoch" | "mittel" | "niedrig" | "-"
+    confidence: str  # "hoch" | "mittel" | "niedrig" | "unscharf" | "-"
     source: str  # menschenlesbare Herkunftsangabe, zum Gegenlesen
 
 
@@ -88,6 +88,12 @@ class Categorizer:
                 "rules.json hat kein 'tiers' -- vermutlich eine alte Version. "
                 "Bitte build_rules.py neu laufen lassen."
             )
+        sample = next((e for t in rules["tiers"].values() for e in t.values()), None)
+        if sample is not None and not isinstance(sample.get("kat"), dict):
+            raise ValueError(
+                "rules.json ist im alten Format (ein Label je Regel statt je Feld "
+                "einem p). Bitte build_rules.py neu laufen lassen."
+            )
         self.tiers = [
             (build_rules.TIERS_BY_NAME[name], rules["tiers"].get(name, {}))
             for name in rules.get("tier_order", list(rules["tiers"]))
@@ -104,17 +110,66 @@ class Categorizer:
                 "text": b.text,
             })
 
-    def suggest(self, booking: build_rules.Booking) -> Suggestion:
+    def best_rule(self, booking: build_rules.Booking):
+        """Die erste Stufe in Abfragereihenfolge, deren Regel die Schwelle
+        besteht -- nicht die erste, die überhaupt trifft, und auch nicht die
+        mit dem höchsten p. Liefert (Stufenname, Schlüssel, Regel) oder None.
+
+        Die Schwelle muss in die Auswahl hinein, nicht erst hinter sie: sonst
+        verdeckt eine dünn belegte Regel der feinen Stufe eine dicht belegte
+        der groben, und das Feld bleibt leer, obwohl die Historie eindeutig
+        ist (1/1 aus "zweck" vor 133/135 aus "empf").
+
+        Nach dem höchsten p auszuwählen wäre der naheliegende nächste
+        Schritt und ist gemessen schlechter: 84,8 % gegen 86,3 % auf der Kat,
+        und von den Vorschlägen, in denen sich beide unterschieden, wurde
+        keiner dadurch richtig, aber acht falsch (`python -m finance.evaluate`,
+        Tabelle 4). p kennt nur Häufigkeiten. Dass eine Zweck-Signatur den
+        Sachverhalt schärfer fasst als der Empfänger allein, steht in keinem
+        Zähler -- das weiß nur die Stufenreihenfolge."""
+        fallback = None
         for tier, entries in self.tiers:
             key = tier.key(booking)
             if not key:
                 continue
             rule = entries.get(key)
-            if rule:
-                return Suggestion(
-                    rule["kat"], rule["ukat"], rule["bem"], rule["confidence"],
-                    f"{tier.name}:{key} ({rule['count']}/{rule['total']})",
-                )
+            if rule is None:
+                continue
+            if rule["kat"]["p"] >= build_rules.P_MIN_SUGGEST:
+                return tier.name, key, rule
+            if fallback is None:  # nur noch für die Begründung in der Quelle
+                fallback = (tier.name, key, rule)
+        return fallback
+
+    def suggest(self, booking: build_rules.Booking) -> Suggestion:
+        best = self.best_rule(booking)
+        if best is not None:
+            tier_name, key, rule = best
+            fields = [rule[name] for name in ("kat", "ukat", "bem")]
+            detail = (
+                f"{tier_name}:{key} ({rule['total']} Beleg"
+                f"{'' if rule['total'] == 1 else 'e'}, "
+                + " / ".join(f"{label} {f['p']:.2f}"
+                             for label, f in zip(("Kat", "UKat", "Bem"), fields))
+                + ")"
+            )
+            # p ist präfixweise monoton fallend (Kat >= Kat+UKat >= Tripel),
+            # die Schwelle schneidet also von hinten ab: Kat ohne Bem kommt
+            # vor, Bem ohne Kat nicht.
+            kat, ukat, bem = (f["value"] if f["p"] >= build_rules.P_MIN_SUGGEST else ""
+                              for f in fields)
+            if kat:
+                return Suggestion(kat, ukat, bem,
+                                  build_rules.confidence_label(fields[0]["p"]), detail)
+            # Zu dünn zum Vorschlagen, aber nicht zu dünn zum Erwähnen: der
+            # Wert steht in der Quelle, nur eben nicht in der Kat-Spalte.
+            #
+            # Hier NICHT auf die unscharfe Stufe durchfallen. Gemessen auf den
+            # 121 unterdrückten Testbuchungen trifft sie genau dieselben
+            # 56,2 % und schweigt zusätzlich 37 mal -- kein Wunder, ihre
+            # Tokenüberlappung findet als nächsten Nachbarn meist denselben
+            # Empfänger, über den die Regel schon dünn belegt ist.
+            return Suggestion("", "", "", "-", f"zu dünn: {detail} -> {fields[0]['value']}")
 
         if self._fuzzy_pool:
             search_tok = _tokens(booking.empf + " " + booking.text)
@@ -124,8 +179,12 @@ class Categorizer:
                 if score > best_score:
                     best, best_score = cand, score
             if best is not None and best_score >= FUZZY_MIN_SCORE:
+                # Eigenes Label, nicht "niedrig": die Regelstufen treffen
+                # dort noch 90,7 %, die unscharfe Stufe nur 67,7 %. Ein Wort
+                # für beides würde die Spalte wieder unbrauchbar machen --
+                # genau das, was die Kalibrierung abgeschafft hat.
                 return Suggestion(
-                    best["kat"], best["ukat"], best["bem"], "niedrig",
+                    best["kat"], best["ukat"], best["bem"], "unscharf",
                     f"fuzzy(score={best_score}):{best['empf']} / {best['text'][:40]}",
                 )
 
@@ -234,12 +293,12 @@ def main() -> None:
     write_suggestion_csv(out_path, suggestions, plain=args.plain)
 
     counts = Counter(r["Konfidenz"] for r in suggestions)
-    order = ["hoch", "mittel", "niedrig", "-"]
+    order = ["hoch", "mittel", "niedrig", "unscharf", "-"]
     stat = ", ".join(f"{k}: {counts[k]}" for k in order if counts[k])
     print(f"{len(suggestions)} gebuchte Buchungen ({stat})"
           + (f", {n_skipped} nicht gebuchte übersprungen" if n_skipped else ""))
     print(f"Geschrieben nach {out_path}")
-    print("Jetzt Kat/UKat/Bem in Excel korrigieren, als CSV speichern, dann import_dkb.py.")
+    print("Jetzt Kat/UKat/Bem korrigieren (am besten in PyCharm), dann import_dkb.py.")
 
 
 if __name__ == "__main__":
