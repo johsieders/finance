@@ -9,5 +9,6 @@ __pycache__/
 # macOS
 .DS_Store
 
-# lokale Claude-Code-Einstellungen
+# Werkzeug-Konfiguration, nur lokal
 .claude/settings.local.json
+.cadence/
