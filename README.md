@@ -46,7 +46,7 @@ finance/
 von `finance`. Dort lassen sich vergangene Jahre gefahrlos nachspielen, bevor
 etwas die echte Buchhaltung anfasst.
 
-## Die vier Programme
+## Die drei Programme des Monatslaufs
 
 ### `build_rules`
 
@@ -199,6 +199,34 @@ Buchungen.
 
 Die Datei ist absteigend nach Datum sortiert: oben der F-Block, darunter die
 Ist-Buchungen. `Saldo[i] = Betrag[i] + Saldo[i+1]`.
+
+## `pivot` -- hinsehen, was da eigentlich steht
+
+```bash
+python3 -m finance.pivot                      # HTML schreiben und oeffnen
+python3 -m finance.pivot --from-year 2020     # nur die letzten Jahre
+python3 -m finance.pivot --no-cents --no-open
+```
+
+Zeilen Kat/UKat, Spalten Jahr/Monat, Werte die Betragssummen -- beide Achsen
+einzeln auf- und zuklappbar: ein Klick auf eine Kat zeigt ihre UKat, ein Klick
+auf ein Jahr seine Monate. Zugeklappt also Kat x Jahr, voll aufgeklappt
+UKat x Monat. Das Terminal zeigt dieselbe Tabelle zugeklappt und auf die
+letzten Jahre beschnitten.
+
+Nur Ist-Buchungen: der F-Block ist ein verschobener Klon, mitgezaehlt
+erschiene jeder Betrag doppelt.
+
+Die HTML-Datei landet **neben** den Daten (`~/Documents/finance/pivot.html`),
+nicht im Repository -- sie enthaelt die vollstaendige Buchhaltung. Sie ist in
+sich geschlossen: kein CDN, kein Netz, die Klappmechanik sind zwanzig Zeilen
+JavaScript in der Datei.
+
+Kat und UKat werden getrimmt, sonst stuende `"MF "` als eigene Kategorie neben
+`"MF"`. Solche Faelle werden im Terminal gemeldet statt stillschweigend
+verschluckt -- in `money.csv` sind sie Tippfehler, und `build_rules` macht
+daraus ein eigenes Tripel. Beim ersten Lauf waren es drei: `Kat='MF '`,
+`UKat=' BR'`, `UKat='GU '`.
 
 ## `evaluate` -- die Zahlen nachrechnen
 
