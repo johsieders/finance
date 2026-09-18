@@ -37,6 +37,7 @@ Die Daten liegen außerhalb des Repositorys, unter `~/Documents/finance`:
 ```
 finance/
   money/money.csv                  die Buchhaltung selbst
+  money/money.html                 Pivot-Ansicht, von finance.pivot erzeugt
   umsatzlisten/DD-MM-YYYY_...csv   Kontoauszüge, wie von der DKB geliefert
   rules/rules.json                 abgeleiteter Regel-Cache
   suggestions/....suggestion.csv   Vorschläge zum Korrigieren
@@ -217,10 +218,12 @@ letzten Jahre beschnitten.
 Nur Ist-Buchungen: der F-Block ist ein verschobener Klon, mitgezaehlt
 erschiene jeder Betrag doppelt.
 
-Die HTML-Datei landet **neben** den Daten (`~/Documents/finance/pivot.html`),
-nicht im Repository -- sie enthaelt die vollstaendige Buchhaltung. Sie ist in
-sich geschlossen: kein CDN, kein Netz, die Klappmechanik sind zwanzig Zeilen
-JavaScript in der Datei.
+Die HTML-Datei landet **neben ihrer Quelle**: `money.csv` →
+`money/money.html`, nicht im Repository -- sie enthaelt die vollstaendige
+Buchhaltung. Der Name folgt der Eingabe, damit `--test` und eine abweichende
+Quelldatei nicht auf derselben Ausgabe landen. Sie ist in sich geschlossen:
+kein CDN, kein Netz, die Klappmechanik sind zwanzig Zeilen JavaScript in der
+Datei.
 
 Kat und UKat werden getrimmt, sonst stuende `"MF "` als eigene Kategorie neben
 `"MF"`. Solche Faelle werden im Terminal gemeldet statt stillschweigend

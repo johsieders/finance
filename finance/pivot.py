@@ -11,11 +11,12 @@ Nur Ist-Buchungen. Der F-Block ist ein um ein Jahr verschobener Klon der
 Vergangenheit -- mitgezählt würde jeder Betrag doppelt erscheinen, einmal im
 Ist und einmal in der Vorschau.
 
-Ausgabe ist eine einzelne HTML-Datei, die NEBEN den Daten landet
-(~/Documents/finance/pivot.html), nicht im Repository: sie enthält die
-vollständige Buchhaltung, und die hat in git nichts zu suchen. Kein CDN,
-kein Netz, keine externe Abhängigkeit im Dokument -- Klappmechanik sind
-zwanzig Zeilen JavaScript in der Datei selbst.
+Ausgabe ist eine einzelne HTML-Datei neben ihrer Quelle: money.csv ->
+money/money.html. Nicht im Repository, denn sie enthält die vollständige
+Buchhaltung, und die hat in git nichts zu suchen. Der Name folgt der
+Eingabe, damit --test und eine abweichende Quelldatei nicht auf derselben
+Ausgabe landen. Kein CDN, kein Netz, keine externe Abhängigkeit im
+Dokument -- die Klappmechanik sind zwanzig Zeilen JavaScript in der Datei.
 
 Gelesen wird mit import_dkb.read_money_csv und nicht mit pandas.read_csv:
 money.csv hat eine namenlose Spalte (Bem), deutsche Beträge mit "€" und
@@ -352,7 +353,8 @@ def main() -> None:
     money_io.add_test_flag(ap)
     ap.add_argument("money", nargs="?", default="money.csv",
                     help="Dateiname im money-Ordner")
-    ap.add_argument("-o", "--out", help="Zieldatei (Default: <finance>/pivot.html)")
+    ap.add_argument("-o", "--out",
+                    help="Zieldatei (Default: neben der Quelle, money.csv -> money.html)")
     ap.add_argument("--from-year", type=int, help="Jahre davor weglassen")
     ap.add_argument("--to-year", type=int, help="Jahre danach weglassen")
     ap.add_argument("--no-cents", action="store_true",
@@ -379,8 +381,8 @@ def main() -> None:
     print()
     print_collapsed(tables, args.terminal_years, cents)
 
-    # Neben die Daten, nicht ins Repository: die Datei enthält alles.
-    out_path = Path(args.out) if args.out else fld.root / "pivot.html"
+    # Neben die Quelle, nicht ins Repository: die Datei enthält alles.
+    out_path = Path(args.out) if args.out else money_path.with_suffix(".html")
     title = f"money.csv — Kat/UKat × Jahr/Monat"
     out_path.write_text(render(tables, info, title, cents), encoding="utf-8")
     print(f"\nGeschrieben nach {out_path}")
