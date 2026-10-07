@@ -30,16 +30,22 @@ ausgeschriebene Interpreter.
 ```bash
 # 1. Umsatzliste bei der DKB herunterladen, nach umsatzlisten/ legen
 
-# 2. Regeln aus der Historie neu berechnen
-.venv/bin/python -m finance.build_rules
-
-# 3. Vorschlagsdatei erzeugen: suggestions/<auszug>.suggestion.csv
+# 2. Vorschlagsdatei erzeugen: suggestions/<auszug>.suggestion.csv
 .venv/bin/python -m finance.categorize_import
 
-# 4. Kat/UKat/Bem korrigieren (am besten in PyCharm); Excel, Numbers o.ä können Probleme mit Sonderzeichen oder Delimitern verursachen.
+# 3. Kat/UKat/Bem manuell korrigieren (am besten in PyCharm); Excel, Numbers o.ä können Probleme mit Sonderzeichen oder Delimitern verursachen.
 
-# 5. Die korrigierte Datei in money.csv eintragen
+# 4. Die korrigierte Datei in money.csv eintragen
 .venv/bin/python -m finance.import_dkb
+
+# 5. Regeln aus der Historie neu berechnen
+.venv/bin/python -m finance.build_rules
+
+# 6. Pivottabelle neu berechnen
+.venv/bin/python -m finance.pivot
+
+# 7. Graphik neu berechnen
+.venv/bin/python -m finance.display_money
 ```
 
 Ohne Argumente nimmt jedes Programm die jeweils neueste Datei im vorgesehenen
